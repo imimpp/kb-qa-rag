@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 from openai import OpenAI
 
-
 load_dotenv()
 
 @dataclass
@@ -53,4 +52,11 @@ class LLMClient:
         chatResult=ChatResult(response.choices[0].message.content,response.usage,response.model)
         return chatResult
 
-
+    def embed(self,texts:list[str],model="qwen3.7-text-embedding-flash", base_url=os.getenv("OPENAI_API_BASE_URL"))->list[list[float]]:
+        """把一批文字转向量,供后续相似度检索使用"""
+        client=self._get_client(base_url)
+        response = client.embeddings.create(
+            model=model,
+            input=texts
+        )
+        return [item.embedding for item in response.data]
