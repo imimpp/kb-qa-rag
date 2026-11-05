@@ -40,6 +40,47 @@ class LLMClient:
 
     # 类属性：把 base_url 映射到已经建好的 client，避免重复建连接
     _client: dict={}
+    # 单价：元 / 每百万 token
+    PRICE = {
+        "qwen3.8-flash": {
+            "input": 0.8,          # 普通输入
+            "cached_input": 0.1,   # 缓存命中输入
+            "output": 2.7,         # 输出（已含 reasoning）
+        },
+        "qwen3.7-text-embedding-flash": {
+            "input": 0.125,        # embedding 只有输入
+        },
+    }
+
+
+    def __init__(self):
+        # 账本结构：按模型分项
+        self._usage = {
+             "qwen3.8-flash": {"input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost": 0.0},
+             "qwen3.7-text-embedding-flash": {"input_tokens": 0, "cost": 0.0}
+        }
+
+    def _record_usage(self, model,usage):
+        #每次chat/embed成功后调用,把usage累加进账本
+        if hasattr(usage, 'completion_tokens'):
+            temp=usage.prompt_tokens_details
+            cached_tokens=getattr(temp,"cached_tokens",0) or 0
+            input_tokens=usage.prompt_tokens-cached_tokens
+            output_tokens=usage.completion_tokens
+            self._usage[model]["cached_tokens"]+=cached_tokens
+            self._usage[model]["input_tokens"]+=input_tokens
+            self._usage[model]["output_tokens"]+=output_tokens
+            self._usage[model]["cost"]+=(input_tokens*self.PRICE[model]["input"]+cached_tokens*self.PRICE[model]["cached_input"]+output_tokens*self.PRICE[model]["output"])/1000000
+        else:
+            input_tokens=usage.prompt_tokens
+            self._usage[model]["input_tokens"]+=input_tokens
+            self._usage[model]["cost"]+=(input_tokens*self.PRICE[model]["input"])/1000000
+
+    def get_cost(self)->dict:
+        #返回累计总账:总token,总成本,按项目分项
+        return self._usage
+
+
 
     def _get_client(self,base_url:str) -> OpenAI:
         """按 base_url 拿 client，没有就新建并缓存。"""
@@ -69,6 +110,7 @@ class LLMClient:
             messages=messages,
         )
         chatResult=ChatResult(response.choices[0].message.content,response.usage,response.model)
+        self._record_usage(model,response.usage)
         return chatResult
 
     @retry(
@@ -99,6 +141,7 @@ class LLMClient:
                 response_format={"type": "json_object"},
             )
             json_string = response.choices[0].message.content
+            self._record_usage(model,response.usage)
             try:
                 # 解析成功且是 dict 才算合格；是 list 等其他类型也视为失败
                 data=json.loads(json_string)
@@ -133,4 +176,5 @@ class LLMClient:
             model=model,
             input=texts
         )
+        self._record_usage(model,response.usage)
         return [item.embedding for item in response.data]
