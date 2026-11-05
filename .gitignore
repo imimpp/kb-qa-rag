@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 项目语料与抓取/清洗脚本（本地保留，不进版本库）
+data/
+scripts/
