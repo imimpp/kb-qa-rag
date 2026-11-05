@@ -7,12 +7,24 @@
 
 用这个模块取代散落在 function_calling_v2.py / llm_agent.py 里各自建 client 的做法。
 """
-
+import json
+import logging
 import os
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from openai import APITimeoutError, RateLimitError, APIConnectionError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    wait_exponential,
+    stop_after_attempt,
+    before_sleep_log
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -41,7 +53,14 @@ class LLMClient:
 
         return  self._client[base_url]
 
-
+    @retry(
+        retry=retry_if_exception_type(
+            (RateLimitError, APITimeoutError, APIConnectionError)
+        ),
+        wait=wait_exponential(multiplier=2, min=15, max=120),
+        stop=stop_after_attempt(5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
     def chat(self, messages, model, base_url=os.getenv("OPENAI_API_BASE_URL")) -> ChatResult:
         """发起一次对话，返回 ChatResult。"""
         client=self._get_client(base_url)
@@ -52,6 +71,61 @@ class LLMClient:
         chatResult=ChatResult(response.choices[0].message.content,response.usage,response.model)
         return chatResult
 
+    @retry(
+        retry=retry_if_exception_type(
+            (RateLimitError, APITimeoutError, APIConnectionError)
+        ),
+        wait=wait_exponential(multiplier=2, min=15, max=120),
+        stop=stop_after_attempt(5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
+    def chat_json (self, messages, model, base_url=os.getenv("OPENAI_API_BASE_URL")) -> dict:
+        """发起一次对话并要求模型返回结构化 JSON，返回解析后的 dict。
+
+        分两层保障拿到合法 dict：
+        1. 请求带 response_format={"type": "json_object"}，从源头压降低模型吐非 JSON 的概率；
+        2. 客户端 json.loads 校验，失败则追加「assistant 原文 + user 纠错指令」再重试 1 次，
+           两次都失败则抛错，绝不返回半成品。
+
+        注意：messages 是调用方传入的 list，这里会在原地 append 纠错消息，
+        会修改调用方那份 messages（如需复用请传副本）。
+        """
+        client=self._get_client(base_url)
+        for _ in range(2):
+            # 每次重试都重新请求，走同一段代码，避免「第一次在循环外、第二次在 except 里」的错位
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format={"type": "json_object"},
+            )
+            json_string = response.choices[0].message.content
+            try:
+                # 解析成功且是 dict 才算合格；是 list 等其他类型也视为失败
+                data=json.loads(json_string)
+                if not isinstance(data,dict):
+                    raise ValueError(f"不是dict,实际是{type(data).__name__}")
+                return data
+            except (json.decoder.JSONDecodeError,ValueError) as e:
+                # 解析失败：把模型上次的输出原文 + 纠错指令一起追加，让模型知道错在哪
+                messages.append({
+                    "role":"assistant",
+                    "content":json_string
+                })
+                messages.append({
+                    "role":"user",
+                    "content": "你返回的不是合法JSON，请只返回JSON，不要其他内容"
+                })
+        # 循环跑完还没 return，说明重试 2 次都失败，抛错而不是静默返回
+        raise ValueError("模型连续返回非法json")
+
+    @retry(
+        retry=retry_if_exception_type(
+            (RateLimitError, APITimeoutError, APIConnectionError)
+        ),
+        wait=wait_exponential(multiplier=2, min=15, max=120),
+        stop=stop_after_attempt(5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
     def embed(self,texts:list[str],model="qwen3.7-text-embedding-flash", base_url=os.getenv("OPENAI_API_BASE_URL"))->list[list[float]]:
         """把一批文字转向量,供后续相似度检索使用"""
         client=self._get_client(base_url)
