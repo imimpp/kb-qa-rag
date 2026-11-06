@@ -8,7 +8,7 @@
 
 ## 现在能做什么
 
-一个不依赖任何框架的原生 Function Calling 回路，外加三层工程处理：
+一个不依赖任何框架的原生 Function Calling 回路，外加统一的 LLM 客户端封装与七项工程处理：
 
 | 能力 | 实现要点 |
 |---|---|
@@ -16,6 +16,9 @@
 | **表达式安全执行** | 不用 `eval` 裸执行模型输出：`ast` 语法树 + **默认拒绝**白名单（只放行数字与 `+ - * / // % **`），`Call/Name/Attribute` 等一律拒绝 |
 | **失败分类处理** | 可重试（超时/限流/连接）走指数退避；不可重试（鉴权/参数非法）零退避立即失败；工具失败原因统一回填给模型，由模型组织话术 |
 | **参数校验** | `json.loads` 后校验 dict 类型、必填字段、工具名白名单 |
+| **结构化输出** | `chat_json`：请求带 `response_format=json_object` + 客户端 `json.loads` 校验；非法则追加「原文 + 纠错指令」重试 1 次，两次都失败直接抛错，绝不返回半成品 |
+| **流式输出** | `stream=True` 增量读取，已测首 token 与完整耗时的 P50/P95 基线（实验 004） |
+| **成本账本** | `get_cost()` 按模型累计 token 与金额，区分普通输入 / 缓存命中输入 / 输出单价（实验 006 已逐项核对公式） |
 
 ## 快速开始
 
@@ -27,7 +30,7 @@ pip install openai python-dotenv tenacity
 cp .env.example .env      # 填入 OPENAI_API_KEY / OPENAI_API_BASE_URL
 
 # 3. 运行工具调用回路
-python function_calling_v2.py
+python legacy/function_calling_v2.py
 
 # 可选：复现重试与退避实验（约 5 秒）
 python experiments/exp_003_retry.py
@@ -37,11 +40,16 @@ python experiments/exp_003_retry.py
 
 ```
 .
-├── llm_agent.py              # 第 1 步：裸调 chat 接口（最小可用）
-├── function_calling.py       # 第 2 步：Function Calling 回路（无容错，历史版本）
-├── function_calling_v2.py    # 第 3 步：+ 超时重试 / 参数校验 / ast 白名单 / 失败回填
-├── experiments/
-│   └── exp_003_retry.py      # 实验 003：超时与重试实测
+├── llm_client.py              # 统一 LLM 客户端（chat / chat_json / embed + 重试 + 成本埋点）
+├── data/
+│   ├── raw_doc/               # 43 份医保指南原始 docx
+│   └── parsed/                # 抽文字后的 json（第 3 周解析链路产出）
+├── legacy/                    # 第 0 周学习产物（裸调 chat / Function Calling 回路）
+│   ├── llm_agent.py
+│   ├── function_calling.py
+│   └── function_calling_v2.py
+├── experiments/               # 实验脚本（编号对应实验记录）
+├── scripts/                   # 数据采集/转换脚本（本地保留，不进 git）
 └── 实验记录.md                # 所有指标数字的唯一出处（含口径、样本量、命令）
 ```
 
@@ -55,6 +63,8 @@ python experiments/exp_003_retry.py
 | 002 | Function Calling 完整回路 | 回路跑通；`arguments` 是纯字符串，必须先 `json.loads` |
 | 002-b | ast 白名单 + 失败统一回填 | 端到端 4 例 + 单测 3 例；**端到端里白名单一次未生效**，安全实际是"模型对齐 + 本地强校验"两层 |
 | 003 | 超时与重试实测 | 退避间隔实测 [0.5, 1.0] s；鉴权错误零退避，验证可重试/不可重试分类生效 |
+| 004 | 流式输出延迟基线 | 同一问题 10 次：**首 token P50 = 1400 ms / P95 = 1826 ms**，完整回答 P50 = 1876 ms / P95 = 2418 ms（n=10，仅基线不作强结论） |
+| 006 | 成本埋点验证 | chat 单次 66 入 / 65 出 ≈ 0.0002283 元；程序账本与手算公式逐项一致（N=1 公式验证，非平均成本统计） |
 
 ## 踩坑记录
 
@@ -67,15 +77,17 @@ python experiments/exp_003_retry.py
 
 - 只处理了 `tool_calls[0]`：模型一次要求并行调用多个工具时，历史里会出现"多个 tool_call 只配一条 tool 消息"，下次请求可能 400（待修）。
 - `Pow` 未设指数上限：`2**999999` 会卡死（白名单放行，但求值不可控）。
-- 流式输出（`stream=True`）与首 token 延迟尚未实现。
-- 仍是"单轮工具调用"：没有多轮循环、没有递归上限、没有成本统计。
+- 仍是"单轮工具调用"：没有多轮循环、没有递归上限。
+- `llm_client.py` 的单价表与用量账本目前硬编码了两个模型名，切换未登记的模型会取价失败（待改为未知模型记 0 并告警）。
+- `chat_json` 的重试与外层退避叠乘，最坏情况会发出多次真实请求，总次数上限待收敛。
 
 ## 路线图
 
 - [x] 原生 Function Calling 完整回路
 - [x] 表达式安全执行（ast 白名单）
 - [x] 超时/重试/失败回填
-- [ ] 流式输出 + 首 token 延迟基线
+- [x] 流式输出 + 首 token 延迟基线
+- [x] token 与成本埋点（`get_cost()`，公式已逐项核对）
 - [ ] 多 tool_calls 并行回填
 - [ ] 检索链路：文档解析 → 切块 → 混合检索（BM25 + 向量）→ Rerank
 - [ ] 人工标注评测集与离线评测（Recall@K / MRR / faithfulness）
