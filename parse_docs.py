@@ -2,6 +2,14 @@ from docx import Document
 from docx.text.paragraph import Paragraph
 from docx.table import Table
 
+# 骨架保留原文供溯源，匹配前再归一化；43 份语料实测字节级一致
+PLACEHOLDER_SKELETONS = {
+    "publish_date": 'XXXX年X月X日发布                   XXXX年X月X日实施',
+    "publish_unit": 'XXXX（发布单位全称）  发  布',
+    "address": '地址：XX市XX区（市、县）XX路XX号XX服务大厅XX-XX号窗口',
+    "office_hours": '时间：周X至周X 上午XX：XX-XX:XX  下午XX：XX-XX:XX',
+}
+
 
 def paragraph_to_block(paragraph):
     """把 docx 段落转成一个 block，空段落返回 None。"""
@@ -36,24 +44,38 @@ def table_to_block(table):
     return {"type": "table", "markdown": '\n'.join(lines)}
 
 
+def match_placeholder(text: str) -> str | None:
+    """未填模板空位返回命中骨架键，否则 None；子串包含、两边同时空白归一化。"""
+    normalized_text = ' '.join(text.split())
+    for key, skeleton in PLACEHOLDER_SKELETONS.items():
+        normalized_skeleton = ' '.join(skeleton.split())
+        if normalized_skeleton in normalized_text:
+            return key
+    return None
+
 def parse_one(doc):
-    """管整个文档：按顺序遍历，段落和表格分别处理，组装成 blocks。"""
+    """管整个文档：按顺序遍历，段落和表格分别处理，组装成 blocks,模板空位进 placeholders。"""
     # 用 iter_inner_content() 而非 doc.paragraphs + doc.tables：
     # 后者是两个独立列表，拼起来会丢失段落与表格在原文中的先后顺序
     blocks = []
+    placeholders = []
     for item in doc.iter_inner_content():
         if isinstance(item, Table):
             blocks.append(table_to_block(item))
         elif isinstance(item, Paragraph):
-            block = paragraph_to_block(item)
-            if block:
-                blocks.append(block)
-    return blocks
+            rule = match_placeholder(item.text)
+            if rule is not None:
+                placeholders.append({"text":item.text.strip(), "rule":rule})
+            else:
+                block = paragraph_to_block(item)
+                if block:
+                    blocks.append(block)
+    return {"blocks": blocks, "placeholders": placeholders}
 
 
 if __name__ == '__main__':
     doc = Document(r"data/raw_doc/1.企业参保登记服务指南.docx")
-    blocks = parse_one(doc)
+    blocks = parse_one(doc)["blocks"]
     print([block for block in blocks if block["type"] == "table"])
     for block in blocks:
         if block["type"] == "table":

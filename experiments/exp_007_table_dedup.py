@@ -40,7 +40,7 @@ def _markdown_no_dedup(table):
 
 
 doc = Document(str(DOC_PATH))
-blocks = parse_one(doc)
+blocks = parse_one(doc)["blocks"]
 
 print("=== blocks 构成 ===")
 print("总数:", len(blocks), dict(Counter(b["type"] for b in blocks)))
