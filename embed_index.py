@@ -74,10 +74,36 @@ def build_index():
         json.dump(meta, f,ensure_ascii=False, indent=2)
     print(f"indexed={len(metas)},tokens={usage['input_tokens']},cost_yuan={usage['cost']:.4f}")
 
+def search(question,k=5):
+    """ 查询层:问题->向量与全部块点积打分->取top-k->行号回meta取原文"""
+    vectors = np.load(INDEX_DIR / "vectors.npy")
+    with open(INDEX_DIR/"meta.json","r",encoding="utf-8") as f:
+        meta = json.load(f)
+    assert vectors.shape[0] == meta["count"]
+    assert vectors.shape[1] == meta["dim"]
+    assert len(meta["chunks"]) == meta["count"]
 
+    client = llm_client.LLMClient()
+    q_vec = client.embed([question],model=EMBED_MODEL)[0]
+    norm = np.linalg.norm(q_vec)
+    q_vec = q_vec / norm
+    scores = vectors.dot(q_vec)
 
+    top_idx = np.argsort(scores)[::-1][:k]
 
-
-
+    results = []
+    for idx in top_idx:
+        entry = meta["chunks"][idx]
+        results.append({
+            "score": float(scores[idx]),
+            "text": entry["text"],
+            "source": entry["source"],
+            "start": entry["start"],
+            "end": entry["end"],
+        })
+    return results
 if __name__ == "__main__":
-    build_index()
+    results = search("企业参保登记怎么办？")
+    for rank, r in enumerate(results, start=1):
+        print(f"[{rank}] score={r['score']:.4f}  {r['source']}  blocks[{r['start']}:{r['end']}]")
+        print(f"    {r['text'][:80]}")
