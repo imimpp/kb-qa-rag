@@ -1,10 +1,10 @@
 # kb-qa-rag
 
-面向公共服务文档场景的知识库问答系统（RAG）——**当前阶段：工具调用与容错底座 + 文档解析链路**。
+面向公共服务文档场景的知识库问答系统（RAG）——**当前阶段：工具调用与容错底座 + 文档解析链路 + 向量检索与离线评测基线**。
 
 按「先把大模型工具调用、失败处理、安全边界做扎实，再把非结构化 docx 解析成可检索的结构，最后向上搭检索与评测」的顺序推进，每一步的实验数据都记录在 [`实验记录.md`](./实验记录.md) 里，可逐条复现。
 
-> 说明：本仓库当前已完成 **LLM 工具调用底座** 与 **docx 解析→切块链路（固定窗）** 两块，检索（BM25 + 向量 / Rerank）与评测集**尚未开始**。没做的绝不标成"已完成"，避免 README 变成简历注水；切块的三种策略对照实验也还没跑，README 只声明"固定窗切块已实现"，不声称切块方案已选定。
+> 说明：本仓库当前已完成 **LLM 工具调用底座**、**docx 解析→切块链路（固定窗）**、**向量检索最小实现（建索引 + top-5 查询）** 与 **20 问真实提问评测集 + [009] baseline Recall@5** 四块。混合检索（BM25 + 向量）/ Rerank 与生成侧**尚未开始**；切块的三种策略对照实验也还没跑，README 只声明"固定窗切块已实现并测得基线召回"，不声称切块方案已选定。没做的绝不标成"已完成"，避免 README 变成简历注水。
 
 ## 现在能做什么
 
@@ -34,6 +34,16 @@
 | **批量落盘** | `parse_batch.py` 遍历 `data/raw_doc/*.docx` 产出 `data/parsed/*.json`（43 份）；单份失败不拖死整批、末尾汇总；产物带 `source` 字段可溯源 |
 | **固定窗切块** | `chunking.chunk_fixed_window()`（默认 500 字符窗口 / 100 重叠）：block 作原子不劈开，累计到窗口封块，把上一块尾部带回做重叠，单独超窗的块独占且不回退尾块；每个 chunk 带 `start:end` 可切回原文。**注意：三种切块策略的对照实验尚未跑，固定窗目前只是已实现的一个基线，非最终选型** |
 
+### 三、向量检索与离线评测
+
+不依赖框架与向量库的「切块 → 向量 → top-5 → 对标注区间打分」最小实现：
+
+| 能力 | 实现要点 |
+|---|---|
+| **建索引** | `embed_index.build_index()`：43 份解析 JSON → 固定窗切块 460 块 → qwen3.7-text-embedding-flash 分批 embed → L2 归一化落盘 `data/index/vectors.npy` + `meta.json`（向量行号 ↔ chunk 元数据逐行对齐） |
+| **查询** | `embed_index.search()`：问题 embed → 与全部块向量点积打分 → top-k → 行号回 meta 取原文与出处 |
+| **离线评测** | `experiments/exp_009_eval_recall.py`：20 条互联网真实提问、36 个原始 block 答案区间；命中 = 同 source 且区间相交（any-hit 松口径）；**baseline Recall@5 = 19/20 = 0.95**（实验 009，口径偏松、n=20 等局限见条目） |
+
 ## 快速开始
 
 ```bash
@@ -49,6 +59,12 @@ python legacy/function_calling_v2.py
 # 4. 解析 docx 语料 → data/parsed/*.json（需本地具备 data/raw_doc/*.docx，该目录 .gitignore 不随仓库分发）
 python parse_batch.py
 
+# 5. 建向量索引 → data/index/（调用 embedding API，计费；embed_index.py 的 __main__ 是示例查询，建索引用此命令）
+python -c "import embed_index; embed_index.build_index()"
+
+# 6. [009] Recall@5 离线评测（需先建好 data/index/；逐题调用 embedding API）
+python experiments/exp_009_eval_recall.py
+
 # 可选：复现重试与退避实验（约 5 秒）
 python experiments/exp_003_retry.py
 ```
@@ -61,16 +77,18 @@ python experiments/exp_003_retry.py
 ├── parse_docs.py              # docx → block 序列（iter_inner_content 保序 / 合并单元格去重 / 占位符隔离）
 ├── parse_batch.py             # 批量解析 data/raw_doc/*.docx → data/parsed/*.json
 ├── chunking.py                # 固定窗切块（block 原子、尾块带回重叠、超窗块独占）
+├── embed_index.py             # 向量检索最小实现（建索引：embed+归一化落盘；查询：点积 top-k）
 ├── test_parse_docs.py         # 解析层单元测试
 ├── test_llm_client.py         # 客户端成本/逻辑单测
 ├── data/                      # 整目录 .gitignore，不随仓库分发（语料与产物仅本地保留）
 │   ├── raw_doc/               # 43 份医保指南原始 .docx
-│   └── parsed/                # 解析链路产出的 43 份 .json（blocks + placeholders）
+│   ├── parsed/                # 解析链路产出的 43 份 .json（blocks + placeholders）
+│   └── index/                 # 向量索引（vectors.npy + meta.json）
 ├── legacy/                    # 第 0 周学习产物（裸调 chat / Function Calling 回路）
 │   ├── llm_agent.py
 │   ├── function_calling.py
 │   └── function_calling_v2.py
-├── experiments/               # 实验脚本（编号对应实验记录，含 007 表格去重 / 008 占位符隔离）
+├── experiments/               # 实验脚本（编号对应实验记录，含 007 表格去重 / 008 占位符隔离 / 009 Recall@5 评测）
 ├── scripts/                   # 数据采集/转换脚本（整目录 .gitignore，本地保留）
 └── 实验记录.md                # 所有指标数字的唯一出处（含口径、样本量、命令）
 ```
@@ -89,6 +107,7 @@ python experiments/exp_003_retry.py
 | 006 | 成本埋点验证 | chat 单次 66 入 / 65 出 ≈ 0.0002283 元；程序账本与手算公式逐项一致（N=1 公式验证，非平均成本统计） |
 | 007 | docx 表格合并单元格去重 | **按对象身份行内去重**压掉冗余：填写示范表 2/3 各降 **78% / 79%**，无合并表 0% 回归干净，列数 4/4 对齐；样本量 N=1 文档（非语料级统计） |
 | 008 | 占位符隔离 vs 裸 `X{2,}` 正则 | 43 份全量：四条精确骨架**隔离 172、残留 0、表格 220/220 未波及**；裸正则命中 633、**误伤率 72.8%**——即"不用通用正则"的数字依据。局限：真值"每份 4 条"系模板结构假设，未经人工标注确证 |
+| 009 | baseline Recall@5（固定窗 + 向量 top-5） | 20 条真实提问：**Recall@5 = 19/20 = 0.95**（any-hit 松口径，是上限）；唯一 miss #5 属"文档捞对、块捞错"；n=20 无统计效力，局限见条目 |
 
 ## 踩坑记录
 
@@ -107,7 +126,8 @@ python experiments/exp_003_retry.py
 - 仍是"单轮工具调用"：没有多轮循环、没有递归上限。
 - `llm_client.py` 的单价表与用量账本目前硬编码了两个模型名，切换未登记的模型会取价失败（待改为未知模型记 0 并告警）。
 - `chat_json` 的重试与外层退避叠乘，最坏情况会发出多次真实请求，总次数上限待收敛。
-- **切块只实现固定窗一个基线**：`chunking.chunk_fixed_window()` 已可跑，但三种切块策略的对照实验未做，默认窗口/重叠参数（500/100 字符）尚未经召回验证，不代表最终选型。
+- **切块只实现固定窗一个基线**：`chunking.chunk_fixed_window()` 已可跑，[009] 已测得基线 Recall@5=0.95（松口径），但三种切块策略的对照实验未做，默认窗口/重叠参数（500/100 字符）不代表最终选型。
+- **评测口径偏松、样本小**：[009] any-hit＋部分包含算命中，0.95 是上限；n=20 一题即 5 个百分点，≤5 块分层仅 1 题；表格模板块在 top-5 挤位（实验 009 备注①②③）。
 - **合并单元格只处理横向**：纵向合并（vMerge）跨行是不同包装对象、markdown 也无 rowspan，故未处理（实验 007 备注②）。单测 `test_parse_docs.py` 目前只覆盖占位符匹配边界（真骨架命中 / 不误伤合法 X 数据），合并去重与空段落过滤尚无独立单测，仅由实验 007（N=1 文档）/ 008（43 份语料脚本核验）覆盖。
 - **表2/表3 是否入库尚未决定**：空白表单与填写示范含 `南宁XX贸易公司`、`45030519860508XXXX` 等脱敏假数据，检索命中后有被模型当真实案例输出的幻觉风险（实验 007 备注④）；表1 的 1 列竖排流程图宜转线性文本，延后到切块阶段处理（备注⑤）。
 - **占位符真值是假设不是标注**：实验 008 的"每份 4 条"来自模板结构假设、未经人工逐份标注，漏检不会表现为 FAIL；且仅测大写 `X`，全角 `Ｘ`、小写 `xx`、其它占位字符未审计。
@@ -122,8 +142,10 @@ python experiments/exp_003_retry.py
 - [x] token 与成本埋点（`get_cost()`，公式已逐项核对）
 - [x] 文档解析链路（docx → block：保序遍历 / 合并单元格去重 / 占位符隔离 / 批量落盘 43 份，实验 007/008）
 - [x] 固定窗切块实现（`chunking.py`，block 原子 + 尾块重叠，作为已跑通的基线）
+- [x] 向量检索最小实现（建索引 + top-5 查询，`embed_index.py`）
+- [x] 20 问真实提问评测集 + [009] baseline Recall@5（松口径，局限见实验记录）
 - [ ] 三种切块策略对照实验（定窗口/重叠参数与最终选型）
 - [ ] 多 tool_calls 并行回填
 - [ ] 混合检索（BM25 + 向量）→ Rerank
-- [ ] 人工标注评测集与离线评测（Recall@K / MRR / faithfulness）
+- [ ] 评测指标扩展（MRR / faithfulness 等）与生成侧评测
 - [ ] FastAPI 封装 + 流式接口
