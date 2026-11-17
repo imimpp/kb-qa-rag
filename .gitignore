@@ -223,6 +223,9 @@ __marimo__/
 data/
 scripts/
 
+# 实验派生产物（可本地复跑，不进版本库）
+experiments/scan_results_010a.json
+
 # AI 助手工作目录（本地状态，不进版本库）
 .workbuddy/
 
