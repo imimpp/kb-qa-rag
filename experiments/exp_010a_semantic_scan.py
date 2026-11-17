@@ -1,10 +1,11 @@
 """
 [010a] 语义切块前置扫描: 全库相邻句相似度分布.
 
-口径(2026-11-16 定): 句=段落按 。！？;换行切、表格按行切; <8字碎片丢弃、
+统计规则: 句=段落按 。！？;换行切、表格按行切; <8字碎片丢弃、
 纯分隔行丢弃; 相邻对=同文档内连续句, 不跨文档; 分层=段对段(p_p) vs
 含表格行(with_table); 抽检=p_p 最低10对+最高5对, 人工判是否真话题断点。
-分布双峰可分->做语义臂并定阈值; 单峰糊住->语义臂放弃。
+判据: 相似度分布呈两个分得开的峰(同话题高相似/换话题低相似)->值得做
+语义切块并定阈值; 糊成一个峰->语义切块放弃。
 只读 data/parsed/ 并调 embed, 不改 chunking.py / embed_index.py。
 """
 import json
@@ -49,7 +50,7 @@ def load_units():
             continue  # Word 瞬态锁文件, 二进制垃圾
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        for block in data["blocks"]:  # 列表顺序=原文档顺序(解析层契约)
+        for block in data["blocks"]:  # 列表顺序=原文档顺序(解析脚本保证)
             kind, texts = block_units(block)
             units.extend((data["source"], kind, t) for t in texts)
         doc_count += 1
