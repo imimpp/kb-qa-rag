@@ -1,12 +1,12 @@
 """
 [009] baseline Recall@5: 20 条互联网真实提问评测固定窗切块+embedding top-5.
 
-口径见 experiments/eval_set.json 的 meta(k=5、命中=同 source 且区间相交、
-Recall@5=命中题数/20)。不改 embed_index.py / chunking.py。
+口径: k=5, 命中=top-5 存在同文档 chunk 其 [start,end) 与答案区间相交,
+Recall@5=命中题数/20。不改 embed_index.py / chunking.py。
 读评测集+逐题 search+命中判断(for-else 区分未命中),打印逐题 hit/rank 与 top-5。
-[010] 评测逻辑抽成 evaluate(index_dir, out_path) 函数: 传哪个索引目录就测哪种
+评测逻辑抽成 evaluate(index_dir, out_path) 函数: 传哪个索引目录就测哪种
 切块法, 命中判断只写一份, 三种切块法(固定窗/递归分隔符/固定窗+大表按行拆)共用。
-[010] 问题向量不再现场调 API, 改读冻结文件(见 freeze_query_vectors.py),
+问题向量不再现场调 API, 改读冻结文件(freeze_query_vectors.py 生成),
 三种切块法用同一份问题向量, 分数差异才只来自切块法本身。
 """
 import json

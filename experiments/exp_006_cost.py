@@ -4,7 +4,7 @@
 目的：验证 llm_client 的 token/成本埋点正确——单次 chat 和 embed 的
 token 用量能正确累加，并按单价换算成成本（元）。
 
-口径（写进实验记录时必须一致）：
+测量口径：
 - 单价单位：元 / 每百万 token；成本单位：元。
 - chat 成本 = (prompt - cached)/1e6*输入价 + cached/1e6*缓存价 + completion/1e6*输出价
 - embed 成本 = prompt/1e6*输入价

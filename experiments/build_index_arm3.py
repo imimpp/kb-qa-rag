@@ -1,5 +1,5 @@
 """
-[010] 臂3 建索引: 固定窗+大表按行拆。
+建索引: 固定窗+大表按行拆切块法。
 
 流程: 读 parsed JSON -> table_expand 展开超窗大表为行伪 block
 -> 同一套固定窗切块(500/100) -> 用 orig_idx 把 chunk 的 start:end
@@ -31,7 +31,7 @@ import table_expand
 PARSED_DIR = ROOT / "data/parsed"
 EXPECTED_DOCS = 43  # 实测语料份数, 防静默少读
 OUT_DIR = ROOT / "data/index_arm3"
-EMBED_MODEL = "qwen3.7-text-embedding-flash"  # 与臂1 同模型, 臂间才可比
+EMBED_MODEL = "qwen3.7-text-embedding-flash"  # 与固定窗索引同模型, 不同切块法之间才可比
 BATCH_SIZE = 20  # 实测上限: 25 直接 400 batch size invalid
 WINDOW_CHARS = 500
 OVERLAP_CHARS = 100
