@@ -18,6 +18,8 @@ EXPECTED_DOCS = 43  # 实测语料份数,防静默少读
 INDEX_DIR = Path("data/index")
 EMBED_MODEL = "qwen3.7-text-embedding-flash"
 BATCH_SIZE = 20  # 实测上限:25 直接400 batch size invalid
+MMR_LAMBDA = 0.7
+POOL_N = 20
 
 
 def load_chunks():
@@ -74,6 +76,30 @@ def build_index():
         json.dump(meta, f,ensure_ascii=False, indent=2)
     print(f"indexed={len(metas)},tokens={usage['input_tokens']},cost_yuan={usage['cost']:.4f}")
 
+def mmr_select(pool_idx,scores,vectors,k,lam=MMR_LAMBDA):
+    """MMR 选择层: 从候选池挑 k 个, 边选边压重复.
+
+    pool_idx: 候选池行号(全库 top-N, 按相关分降序)
+    scores:   全库相关分(点积结果)
+    vectors:  全库单位向量矩阵
+    返回:     选中行号列表, 按入选顺序
+    """
+    selected = []
+    remaining = list(pool_idx)
+    for _ in range(k):
+        mmr_scores = []
+        for c in remaining:
+            max_sim = 0
+            for s in selected:
+                max_sim = max(max_sim,vectors[c].dot(vectors[s]))
+            mmr_score = lam*scores[c]-(1-lam)*max_sim
+            mmr_scores.append((mmr_score,c))
+        best_idx = max(mmr_scores, key=lambda x: x[0])[1]
+        remaining.remove(best_idx)
+        selected.append(best_idx)
+
+    return selected
+
 def search(question,k=5):
     """ 查询层:问题->向量与全部块点积打分->取top-k->行号回meta取原文"""
     vectors = np.load(INDEX_DIR / "vectors.npy")
@@ -89,7 +115,8 @@ def search(question,k=5):
     q_vec = q_vec / norm
     scores = vectors.dot(q_vec)
 
-    top_idx = np.argsort(scores)[::-1][:k]
+    pool_idx = np.argsort(scores)[::-1][:POOL_N]
+    top_idx = mmr_select(pool_idx,scores,vectors,k=k)
 
     results = []
     for idx in top_idx:
