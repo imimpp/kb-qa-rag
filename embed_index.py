@@ -6,6 +6,8 @@
 import json
 from pathlib import Path
 
+import jieba
+from rank_bm25 import BM25Okapi
 
 import chunking
 
@@ -20,6 +22,7 @@ EMBED_MODEL = "qwen3.7-text-embedding-flash"
 BATCH_SIZE = 20  # 实测上限:25 直接400 batch size invalid
 MMR_LAMBDA = 0.7
 POOL_N = 20
+RRF_K = 60
 
 
 def load_chunks():
@@ -42,17 +45,17 @@ def build_index():
     client = llm_client.LLMClient()
     vectors = []
     metas = []
-    for i in range(0,len(chunks),BATCH_SIZE):
-        batch = chunks[i:i+BATCH_SIZE]
-        vecs = client.embed([c["text"] for c in batch],model=EMBED_MODEL)
+    for i in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[i:i + BATCH_SIZE]
+        vecs = client.embed([c["text"] for c in batch], model=EMBED_MODEL)
         vectors.extend(vecs)
-        metas.extend(batch)#同一循环双写:vectors第i行<->metas第i行
+        metas.extend(batch)  # 同一循环双写:vectors第i行<->metas第i行
     norm = np.linalg.norm(vectors, axis=1, keepdims=True)
     vectors = vectors / norm
-    assert len(vectors) == len(metas) ==len(chunks)
+    assert len(vectors) == len(metas) == len(chunks)
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
-    np.save(INDEX_DIR / "vectors.npy",np.asarray(vectors,dtype=np.float32))
-    entries=[]
+    np.save(INDEX_DIR / "vectors.npy", np.asarray(vectors, dtype=np.float32))
+    entries = []
     for c in metas:
         entries.append({
             "text": c["text"],
@@ -68,15 +71,38 @@ def build_index():
         "count": len(metas),
         "built_at": datetime.now().isoformat(timespec="seconds"),
         "chunk_params": {"window_chars": 500, "overlap_chars": 100},
-        "total_tokens":usage["input_tokens"],
+        "total_tokens": usage["input_tokens"],
         "cost_yuan": usage["cost"],
-        "chunks":entries,
+        "chunks": entries,
     }
     with open(INDEX_DIR / "meta.json", "w", encoding="utf-8") as f:
-        json.dump(meta, f,ensure_ascii=False, indent=2)
+        json.dump(meta, f, ensure_ascii=False, indent=2)
     print(f"indexed={len(metas)},tokens={usage['input_tokens']},cost_yuan={usage['cost']:.4f}")
 
-def mmr_select(pool_idx,scores,vectors,k,lam=MMR_LAMBDA):
+
+def build_bm25(meta):
+    """从索引 meta 现建 BM25: 每块原文 jieba 分词当一篇文档."""
+    corpus = [list(jieba.cut(c["text"])) for c in meta["chunks"]]
+    return BM25Okapi(corpus)
+
+
+def rrf_merge(vec_idx, bm25_idx, k=RRF_K):
+    """RRF 融合＋归一化: 两路排名倒数相加, 除以理论最大值压到 [0,1].
+
+    vec_idx / bm25_idx: 两路各自 top-N 行号, 按各自分数降序
+    返回: (行号, 归一化融合分) 列表, 按融合分降序
+    """
+    scores = {}
+    for rank, idx in enumerate(vec_idx, start=1):
+        scores[idx] = scores.get(idx, 0) + 1 / (k + rank)
+    for rank, idx in enumerate(bm25_idx, start=1):
+        scores[idx] = scores.get(idx, 0) + 1 / (k + rank)
+    max_score = 2 / (k + 1)  # 理论上界: 两路都第1, 非拟合参数
+    fused = [(idx, s / max_score) for idx, s in scores.items()]
+    return sorted(fused, reverse=True, key=lambda pair: pair[1])
+
+
+def mmr_select(pool_idx, scores, vectors, k, lam=MMR_LAMBDA):
     """MMR 选择层: 从候选池挑 k 个, 边选边压重复.
 
     pool_idx: 候选池行号(全库 top-N, 按相关分降序)
@@ -91,44 +117,53 @@ def mmr_select(pool_idx,scores,vectors,k,lam=MMR_LAMBDA):
         for c in remaining:
             max_sim = 0
             for s in selected:
-                max_sim = max(max_sim,vectors[c].dot(vectors[s]))
-            mmr_score = lam*scores[c]-(1-lam)*max_sim
-            mmr_scores.append((mmr_score,c))
+                max_sim = max(max_sim, vectors[c].dot(vectors[s]))
+            mmr_score = lam * scores[c] - (1 - lam) * max_sim
+            mmr_scores.append((mmr_score, c))
         best_idx = max(mmr_scores, key=lambda x: x[0])[1]
         remaining.remove(best_idx)
         selected.append(best_idx)
 
     return selected
 
-def search(question,k=5):
+
+def search(question, k=5):
     """ 查询层:问题->向量与全部块点积打分->取top-k->行号回meta取原文"""
     vectors = np.load(INDEX_DIR / "vectors.npy")
-    with open(INDEX_DIR/"meta.json","r",encoding="utf-8") as f:
+    with open(INDEX_DIR / "meta.json", "r", encoding="utf-8") as f:
         meta = json.load(f)
     assert vectors.shape[0] == meta["count"]
     assert vectors.shape[1] == meta["dim"]
     assert len(meta["chunks"]) == meta["count"]
 
     client = llm_client.LLMClient()
-    q_vec = client.embed([question],model=EMBED_MODEL)[0]
+    q_vec = client.embed([question], model=EMBED_MODEL)[0]
     norm = np.linalg.norm(q_vec)
     q_vec = q_vec / norm
     scores = vectors.dot(q_vec)
 
-    pool_idx = np.argsort(scores)[::-1][:POOL_N]
-    top_idx = mmr_select(pool_idx,scores,vectors,k=k)
+    bm25 = build_bm25(meta)
+    bm25_scores = bm25.get_scores(list(jieba.cut(question)))
+    bm25_idx = np.argsort(bm25_scores)[::-1][:POOL_N]
+    vec_idx = np.argsort(scores)[::-1][:POOL_N]
+    fused = rrf_merge(vec_idx, bm25_idx)
+    fused_scores = {idx: s for idx, s in fused}
+    pool_idx = [idx for idx, _ in fused[:POOL_N]]
+    top_idx = mmr_select(pool_idx, fused_scores, vectors, k=k)
 
     results = []
     for idx in top_idx:
         entry = meta["chunks"][idx]
         results.append({
-            "score": float(scores[idx]),
+            "score": float(fused_scores[idx]),
             "text": entry["text"],
             "source": entry["source"],
             "start": entry["start"],
             "end": entry["end"],
         })
     return results
+
+
 if __name__ == "__main__":
     results = search("企业参保登记怎么办？")
     for rank, r in enumerate(results, start=1):
