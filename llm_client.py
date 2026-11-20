@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -50,14 +51,18 @@ class LLMClient:
         "qwen3.7-text-embedding-flash": {
             "input": 0.125,        # embedding 只有输入
         },
+        "qwen3.7-text-rerank": {
+            "input": 0.5,  # 排序模型只按输入 token 计费
+        },
     }
 
 
     def __init__(self):
         # 账本结构：按模型分项
         self._usage = {
-             "qwen3.8-flash": {"input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost": 0.0},
-             "qwen3.7-text-embedding-flash": {"input_tokens": 0, "cost": 0.0}
+            "qwen3.8-flash": {"input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost": 0.0},
+            "qwen3.7-text-embedding-flash": {"input_tokens": 0, "cost": 0.0},
+            "qwen3.7-text-rerank": {"input_tokens": 0, "cost": 0.0},
         }
 
     def _record_usage(self, model,usage):
@@ -178,3 +183,41 @@ class LLMClient:
         )
         self._record_usage(model,response.usage)
         return [item.embedding for item in response.data]
+
+    @retry(
+        retry=retry_if_exception_type(
+            (RateLimitError, APITimeoutError, APIConnectionError)
+        ),
+        wait=wait_exponential(multiplier=2, min=15, max=120),
+        stop=stop_after_attempt(5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
+    def rerank(self,query:str,documents:list[str],model="qwen3.7-text-rerank", base_url=os.getenv("OPENAI_API_BASE_URL"))->list[float]:
+        """重排序: 把问题和每个候选块拼在一起读一遍, 返回相关分列表.
+
+        返回值与 documents 逐位对齐: 第 i 个分数就是 documents[i] 的分.
+        API 的 results 按分数从高到低排, 每项带 index 标明它是输入里第几块,
+        所以这里按 index 把分数放回原座位, 调用方才能按位置直接取用.
+        不传 top_n, API 默认返回全部块的分.
+        """
+        # 排序端点与聊天/向量端点路径差一个词: compatible-api 而非 compatible-mode
+        base=base_url.rstrip("/").replace("compatible-mode","compatible-api")
+        client=self._get_client(base)
+        response=client.post(
+            "/reranks",
+            body={
+                "model": model,
+                "query": query,
+                "documents": documents,
+            },
+            cast_to=object
+        )
+        # dict 转成带属性的对象, 账本函数才能像读 SDK 对象那样读 usage.prompt_tokens;
+        # 排序没有输出 token, 账本走只记输入的分支(与 embedding 同路)
+        self._record_usage(model,SimpleNamespace(**response["usage"]))
+        scores = [0.0] * len(documents)
+        for item in response["results"]:
+            scores[item["index"]] = item["relevance_score"]
+        return scores
+
+

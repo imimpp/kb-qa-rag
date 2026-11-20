@@ -105,8 +105,8 @@ def rrf_merge(vec_idx, bm25_idx, k=RRF_K):
 def mmr_select(pool_idx, scores, vectors, k, lam=MMR_LAMBDA):
     """MMR 选择层: 从候选池挑 k 个, 边选边压重复.
 
-    pool_idx: 候选池行号(全库 top-N, 按相关分降序)
-    scores:   全库相关分(点积结果)
+    pool_idx: 候选池行号(两路融合后的 top-N, 按融合分降序)
+    scores:   全库相关分(归一化融合分, 越大越相关)
     vectors:  全库单位向量矩阵
     返回:     选中行号列表, 按入选顺序
     """
@@ -128,7 +128,7 @@ def mmr_select(pool_idx, scores, vectors, k, lam=MMR_LAMBDA):
 
 
 def search(question, k=5):
-    """ 查询层:问题->向量与全部块点积打分->取top-k->行号回meta取原文"""
+    """查询层:问题->向量点积与BM25关键词两路打分->RRF按名次融合圈候选池->rerank逐块精打分->MMR边压重复边挑k个->行号回meta取原文"""
     vectors = np.load(INDEX_DIR / "vectors.npy")
     with open(INDEX_DIR / "meta.json", "r", encoding="utf-8") as f:
         meta = json.load(f)
@@ -147,15 +147,18 @@ def search(question, k=5):
     bm25_idx = np.argsort(bm25_scores)[::-1][:POOL_N]
     vec_idx = np.argsort(scores)[::-1][:POOL_N]
     fused = rrf_merge(vec_idx, bm25_idx)
-    fused_scores = {idx: s for idx, s in fused}
     pool_idx = [idx for idx, _ in fused[:POOL_N]]
-    top_idx = mmr_select(pool_idx, fused_scores, vectors, k=k)
+    pool_texts = [meta["chunks"][idx]["text"] for idx in pool_idx]
+    rerank_scores = client.rerank(question, pool_texts)
+    # MMR 按全库行号查分, 分数须挂回 pool_idx 的行号, 不能用返回座位号
+    rerank_by_idx = {idx: s for idx, s in zip(pool_idx, rerank_scores)}
+    top_idx = mmr_select(pool_idx, rerank_by_idx, vectors, k=k)
 
     results = []
     for idx in top_idx:
         entry = meta["chunks"][idx]
         results.append({
-            "score": float(fused_scores[idx]),
+            "score": float(rerank_by_idx[idx]),
             "text": entry["text"],
             "source": entry["source"],
             "start": entry["start"],
