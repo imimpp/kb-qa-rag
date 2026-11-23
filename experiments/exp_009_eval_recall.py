@@ -27,11 +27,13 @@ K = 5  # 与生产 search 实际返回条数一致, 评测才有代表性
 QUERY_VECTORS_PATH = ROOT / "experiments" / "query_vectors.npy"  # 冻结问题向量, freeze_query_vectors.py 生成, 行序=题序
 
 
-def load_questions():
-    with open(EVAL_SET_PATH, encoding="utf-8") as f:
+def load_questions(eval_set_path=None, expected_questions=None):
+    path = EVAL_SET_PATH if eval_set_path is None else Path(eval_set_path)
+    expected = EXPECTED_QUESTIONS if expected_questions is None else expected_questions
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     questions = data["questions"]
-    assert len(questions) == EXPECTED_QUESTIONS
+    assert len(questions) == expected
     return questions
 
 
@@ -53,18 +55,23 @@ def print_report(report):
         print(f" stratum{name}:{s['hits']}/{s['total']}={recall}")
 
 
-def evaluate(index_dir, out_path):
+def evaluate(index_dir, out_path, eval_set_path=None, vectors_path=None, expected_questions=None):
     """三种切块法共用的评测: 命中判断只写这一份, 只换索引目录与输出路径。
 
     问题向量读冻结文件, 运行时临时替换 embed 不调 API:
     排除 API 每次返回向量的微小抖动, 不同切块法的分数才能公平对比。
+
+    可选参数默认 None=沿用 20 题旧评测集与旧冻结向量(行为与原先完全一致);
+    传入新评测集/新冻结向量/新题数即可评测扩充集, 命中判断逻辑不变。
     """
     embed_index.INDEX_DIR = Path(index_dir)  # search 在调用时读这个模块全局, 指到臂的索引目录即可, 不改 embed_index.py
     counts = load_doc_chunk_counts(index_dir)
     records = []
-    questions = load_questions()
-    frozen = np.load(QUERY_VECTORS_PATH)  # 行序=eval_set 题序
-    assert frozen.shape[0] == EXPECTED_QUESTIONS  # 防冻结文件与评测集错位
+    questions = load_questions(eval_set_path, expected_questions)
+    vec_path = QUERY_VECTORS_PATH if vectors_path is None else Path(vectors_path)
+    frozen = np.load(vec_path)  # 行序=eval_set 题序
+    expected = EXPECTED_QUESTIONS if expected_questions is None else expected_questions
+    assert frozen.shape[0] == expected  # 防冻结文件与评测集错位
     frozen_by_text = {q["question"]: frozen[i] for i, q in enumerate(questions)}  # 题干->向量字典, 供离线 embed 查
     original_embed = llm_client.LLMClient.embed  # 记住真方法, 用完还原
     def offline_embed(self, texts, model=None, base_url=None):

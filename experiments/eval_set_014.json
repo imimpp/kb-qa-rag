@@ -1,0 +1,805 @@
+{
+  "meta": {
+    "name": "kb-qa-rag 检索评测集（40 题：旧 20 回归子集＋新 20 机理定向）",
+    "created": "2026-11-20",
+    "experiments": [
+      "[014] 三种切块方法胜臂判定（40 题）"
+    ],
+    "k": 5,
+    "metric": "Recall@5 = 命中题数 / 40，逐题 0/1，top-5 内名次不计；旧 20 题单独报回归子集分数",
+    "hit_rule": "top-5 中存在 chunk 与该题任一答案区间同 source 且 [start,end) 相交即命中（部分包含也算）",
+    "block_contract": "start/end 为 data/parsed/<source> 原始 blocks 数组下标（含头不含尾），与切块策略无关；chunk 的 start:end 同契约",
+    "question_source": "互联网真实提问。source_type: 留言=网友原文 / 知识库=政府问答知识库问句标题 / 媒体=媒体问句标题；verified=true 原页已核实问句，false 标题取自搜索快照（反爬或抓取失败）",
+    "annotation_provenance": "旧 20 题标注沿用 eval_set.json 原文；新 20 题 2026-11-20 标注，答案区间逐块核实",
+    "selection": "新 20 题机理定向：表（材料大表/表头回声）8、F（FAQ 词面抢位）5、常（普通对照）6、多（模板共用）1，另 #46/#47 兼多；verified=true 8 条",
+    "limitations": [
+      "命中判定偏松：chunk 与答案区间部分包含也算命中",
+      "#39/#45 计发公式、#43 实施时间：语料无直答，只标语料可答部分（各题 note 详述）",
+      "#49 病种区间[105:120]已逐块核实（高血压＋糖尿病），窄于旧#26宽区间[97:351]",
+      "#51/#47 共享 doc32 区间、#37/#54 共享 doc24 区间：单文档隔离与多文档命中任一两种口径各测一遍，非纯重复",
+      "#45 与旧#29 同文档区间部分重叠（考 FAQ 抢位，旧题未考）",
+      "#38 标题截断「一文读懂→」后缀",
+      "verified=false 共 27 题（旧 15＋新 12），标题取自搜索快照原页未核实",
+      "未覆盖文档：2/9/14/21/27/36/38/39/42/43（机构侧业务网友提问少，不硬凑自拟题）"
+    ]
+  },
+  "questions": [
+    {
+      "id": 2,
+      "cluster": "A",
+      "question": "企业如何办理参保登记及需提供什么材料？",
+      "url": "https://www.jinjiang.gov.cn/gzcy/hdzsk/xzgwh/202312/t20231205_2976957.htm",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "1.企业参保登记服务指南.docx",
+          "start": 24,
+          "end": 31
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "cluster": "A",
+      "question": "灵活就业人员如何参保缴费?",
+      "url": "https://www.fujian.gov.cn/hdjl/hdjlzsk/sybj/dybz/202504/t20250422_6903441.htm",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "5.灵活就业人员医疗保险申报服务指南.docx",
+          "start": 17,
+          "end": 32
+        }
+      ],
+      "note": "缴费渠道语料无直答（doc5 FAQ 只讲变更缴费档次），标参保部分"
+    },
+    {
+      "id": 5,
+      "cluster": "A",
+      "question": "首次参加居民医保该如何进行参保登记？",
+      "url": "https://ybj.fujian.gov.cn/bsfw/syldylbzfw/ybbnx/202511/t20251124_7037298.htm",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "6.城乡居民参保登记服务指南.docx",
+          "start": 28,
+          "end": 36
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "cluster": "B",
+      "question": "参保登记——个人参保信息如何变更",
+      "url": "https://rsj.beijing.gov.cn/yltc/202310/t20231025_3287011.html",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "10.职工参保信息变更登记服务指南.docx",
+          "start": 17,
+          "end": 19
+        },
+        {
+          "source": "10.职工参保信息变更登记服务指南.docx",
+          "start": 23,
+          "end": 31
+        },
+        {
+          "source": "11.城乡居民参保信息变更登记服务指南.docx",
+          "start": 17,
+          "end": 19
+        },
+        {
+          "source": "11.城乡居民参保信息变更登记服务指南.docx",
+          "start": 23,
+          "end": 31
+        }
+      ],
+      "note": "职工/居民两份指南都标，命中任一算对"
+    },
+    {
+      "id": 9,
+      "cluster": "B",
+      "question": "如何办理居民医保暂停参保业务？",
+      "url": "http://www.fujian.gov.cn/hdjl/hdjlzsk/sybj/jbfw/202404/t20240412_6427936.htm",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "7.城乡居民暂停参保登记服务指南.docx",
+          "start": 22,
+          "end": 30
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "cluster": "C",
+      "question": "我退休年龄到了，医保年限不够，应该怎么补交？",
+      "url": "https://www.lawtime.cn/wenda/q_58176371.html",
+      "source_type": "留言",
+      "verified": true,
+      "answers": [
+        {
+          "source": "8.医疗保险在职转退休申报服务指南.docx",
+          "start": 18,
+          "end": 20
+        },
+        {
+          "source": "8.医疗保险在职转退休申报服务指南.docx",
+          "start": 92,
+          "end": 94
+        },
+        {
+          "source": "12.医疗保险费补缴手续办理服务指南.docx",
+          "start": 17,
+          "end": 37
+        }
+      ],
+      "note": "doc8 FAQ[92:94] 与提问近逐字同句；年限条件 25 年/实际 5 年在 [19]"
+    },
+    {
+      "id": 13,
+      "cluster": "C",
+      "question": "怎么办理社保补缴？",
+      "url": "https://jnhrss.jinan.gov.cn/col126018/art/2025/art_126018_4815066.html",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "12.医疗保险费补缴手续办理服务指南.docx",
+          "start": 17,
+          "end": 37
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "cluster": "C",
+      "question": "职工如何申报医疗保险在职转退休（单位职工…",
+      "url": "https://m12333.cn/qa/pafep.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "8.医疗保险在职转退休申报服务指南.docx",
+          "start": 24,
+          "end": 32
+        }
+      ],
+      "note": "标题在来源处截断，原文如此"
+    },
+    {
+      "id": 15,
+      "cluster": "D",
+      "question": "想要转移医保，但工作人员联系说由于我交了城乡居民医保导致职工医保无法转移，请问如何解决这个问题？",
+      "url": "https://www.dongzhi.gov.cn/InFeedback/show/63684.html",
+      "source_type": "留言",
+      "verified": true,
+      "answers": [
+        {
+          "source": "7.城乡居民暂停参保登记服务指南.docx",
+          "start": 15,
+          "end": 18
+        },
+        {
+          "source": "7.城乡居民暂停参保登记服务指南.docx",
+          "start": 22,
+          "end": 30
+        },
+        {
+          "source": "17.自治区内流动就业人员基本医疗保险关系转移接续服务指南.docx",
+          "start": 19,
+          "end": 21
+        },
+        {
+          "source": "17.自治区内流动就业人员基本医疗保险关系转移接续服务指南.docx",
+          "start": 97,
+          "end": 99
+        }
+      ],
+      "note": "多跳组合题：doc7 停保条件[17]明列参加职工医保可停居民保＋停保手续；doc17 转移条件＋FAQ 居民保不用转移；无单块直答"
+    },
+    {
+      "id": 16,
+      "cluster": "D",
+      "question": "现在在桂林市参保，要怎么办理医保关系转移接续业务？",
+      "url": "http://www.rongan.gov.cn/fzlm/zntj/cnxzx/t19700101_3364987.shtml",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "17.自治区内流动就业人员基本医疗保险关系转移接续服务指南.docx",
+          "start": 25,
+          "end": 33
+        },
+        {
+          "source": "17.自治区内流动就业人员基本医疗保险关系转移接续服务指南.docx",
+          "start": 93,
+          "end": 95
+        }
+      ],
+      "note": "doc17 FAQ[93:95] 与提问近逐字同句（南宁→桂林）"
+    },
+    {
+      "id": 18,
+      "cluster": "E",
+      "question": "申请异地长期居住需要什么条件，如何办理异地长期居住手续？",
+      "url": "https://ybj.wuhu.gov.cn/ztzl/ybzszl/ybydaz/8255569.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "20.跨省长期居住人员备案服务指南.docx",
+          "start": 16,
+          "end": 28
+        }
+      ],
+      "note": "问题显式问条件，条件＋材料＋方式全标"
+    },
+    {
+      "id": 19,
+      "cluster": "E",
+      "question": "办理长期居住备案需要哪些材料？",
+      "url": "https://www.tl.gov.cn/tlsrmzf/zsk/pc/content/content_2105138029774299136.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "20.跨省长期居住人员备案服务指南.docx",
+          "start": 20,
+          "end": 25
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "cluster": "E",
+      "question": "请问办理过异地就医备案，现在不需要了怎么取消？",
+      "url": "https://www.nanjing.gov.cn/hdjl/dwzsk/ylws_76720/202511/t20251118_5692617.html",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "25.跨省就医备案取消服务指南.docx",
+          "start": 6,
+          "end": 9
+        },
+        {
+          "source": "25.跨省就医备案取消服务指南.docx",
+          "start": 22,
+          "end": 29
+        }
+      ],
+      "note": "三种取消情形在适用范围段[6:9]（材料备案随时取消/承诺书6个月内不可取消/急诊返回可取消）"
+    },
+    {
+      "id": 26,
+      "cluster": "F",
+      "question": "职工门诊重症慢性病待遇如何申请，都有哪些病种及其支付…",
+      "url": "https://www.jiyuan.gov.cn/zwgk/zcwd/ylbzj/t899420.html",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "26.门诊特殊慢性病待遇资格认定服务指南.docx",
+          "start": 6,
+          "end": 7
+        },
+        {
+          "source": "26.门诊特殊慢性病待遇资格认定服务指南.docx",
+          "start": 27,
+          "end": 37
+        },
+        {
+          "source": "26.门诊特殊慢性病待遇资格认定服务指南.docx",
+          "start": 97,
+          "end": 351
+        }
+      ],
+      "note": "支付标准语料无（全文0命中），标题在来源处截断；病种目录[97:351]含38病种（十三慢性充血性心衰[201]原文缺编号），区间偏宽"
+    },
+    {
+      "id": 27,
+      "cluster": "F",
+      "question": "在江西想变更门诊慢特病定点医院，该如何办理？",
+      "url": "http://ybj.jiangxi.gov.cn/jxsylbzj/col/col27604/content/content_1965703161388408832.html",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "28.门诊特殊慢性病定点医疗机构变更、扩诊申请服务指南.docx",
+          "start": 22,
+          "end": 31
+        },
+        {
+          "source": "28.门诊特殊慢性病定点医疗机构变更、扩诊申请服务指南.docx",
+          "start": 97,
+          "end": 99
+        }
+      ],
+      "note": "FAQ[97:99]：可选3家以内、年度备案制、原则上一年一定中途不予变更"
+    },
+    {
+      "id": 28,
+      "cluster": "G",
+      "question": "聊城市哪些就医费用可以申请手工报销？",
+      "url": "https://m12333.cn/qa/pumam.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "29.门诊费用报销服务指南.docx",
+          "start": 5,
+          "end": 7
+        },
+        {
+          "source": "30.住院费用报销服务指南.docx",
+          "start": 5,
+          "end": 7
+        },
+        {
+          "source": "34.医疗救助对象手工（零星）报销服务指南.docx",
+          "start": 5,
+          "end": 7
+        }
+      ],
+      "note": "门诊/住院/医疗救助手工报销三份指南的适用范围段都标，命中任一算对"
+    },
+    {
+      "id": 29,
+      "cluster": "G",
+      "question": "怎么申领生育津贴？",
+      "url": "https://www.nhsa.gov.cn/art/2024/11/11/art_14_14634.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "33.生育津贴支付服务指南.docx",
+          "start": 25,
+          "end": 37
+        }
+      ],
+      "note": "办理方式含免申即办[36]"
+    },
+    {
+      "id": 31,
+      "cluster": "H",
+      "question": "个人账户一次性支取是什么？怎么办理？",
+      "url": "https://m12333.cn/qa/mewbf.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "16.参保人员个人账户一次性支取服务指南.docx",
+          "start": 17,
+          "end": 33
+        }
+      ],
+      "note": "问题显式问是什么，条件段[19:21]五种支取情形＋材料＋方式全标"
+    },
+    {
+      "id": 32,
+      "cluster": "H",
+      "question": "如何用个人账户为近亲属缴纳居民医保费？",
+      "url": "https://www.nhsa.gov.cn/art/2024/10/11/art_52_14172.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "41.职工医保个人账户共济授权绑定（解绑）服务指南.docx",
+          "start": 16,
+          "end": 33
+        },
+        {
+          "source": "41.职工医保个人账户共济授权绑定（解绑）服务指南.docx",
+          "start": 100,
+          "end": 104
+        }
+      ],
+      "note": "代缴居民医保费场景语料无直答，标共济绑定条件/手续＋FAQ（个账支付就医费用）；材料表在条件段尾[25]，区间已覆盖"
+    },
+    {
+      "id": 34,
+      "cluster": "H",
+      "question": "如何进行特殊药品待遇资格备案",
+      "url": "https://m12333.cn/qa/fcyy.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "40.特殊药品待遇资格备案服务指南新.docx",
+          "start": 26,
+          "end": 36
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "cluster": "I",
+      "question": "职工医保个人参保信息如何查询？",
+      "url": "https://www.bynr.gov.cn/ztzl/zwgkzt/zcwdk/yl/202503/t20250306_19642.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "15.参保人员参保信息查询服务指南.docx",
+          "start": 28,
+          "end": 31
+        },
+        {
+          "source": "15.参保人员参保信息查询服务指南.docx",
+          "start": 91,
+          "end": 92
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "cluster": "E",
+      "question": "在外地因急诊抢救就医，未能提前办理异地就医备案怎么办？",
+      "url": "https://www.bjmtg.gov.cn/bjmtg/c102892/wdzsksy_M_3.shtml",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "22.跨省异地急诊人员备案服务指南.docx",
+          "start": 5,
+          "end": 7
+        },
+        {
+          "source": "22.跨省异地急诊人员备案服务指南.docx",
+          "start": 16,
+          "end": 26
+        }
+      ],
+      "note": "区间较候选提案放宽至[16:26]含材料＋方式（问句问怎么办）"
+    },
+    {
+      "id": 37,
+      "cluster": "E",
+      "question": "广东医保：跨省临时外出就医怎么备案？怎么结算？旅游外出，看病能否走医保",
+      "url": "https://m12333.cn/qa?pf=rbz&p=8",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "24.跨省临时就医备案服务指南.docx",
+          "start": 6,
+          "end": 7
+        },
+        {
+          "source": "24.跨省临时就医备案服务指南.docx",
+          "start": 16,
+          "end": 25
+        }
+      ],
+      "note": "与#54共享doc24[16:25]：本题单文档隔离、#54多文档命中任一，两种口径各测一遍"
+    },
+    {
+      "id": 38,
+      "cluster": "A",
+      "question": "哪些群体参加居民医保能享受医疗救助资助参保待遇？如何办理？",
+      "url": "http://www.lianzhou.gov.cn/bmzy/gzdt/content/post_2081020.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "35.符合资助条件的救助对象参加城乡居民基本医疗保险个人缴费补贴服务指南.docx",
+          "start": 7,
+          "end": 8
+        },
+        {
+          "source": "35.符合资助条件的救助对象参加城乡居民基本医疗保险个人缴费补贴服务指南.docx",
+          "start": 22,
+          "end": 32
+        }
+      ],
+      "note": "标题原带「一文读懂→」后缀，入集截断（旧集#14/#26截断先例）"
+    },
+    {
+      "id": 39,
+      "cluster": "G",
+      "question": "生育津贴的发放标准是多少？",
+      "url": "https://www.nanjing.gov.cn/hdjl/dwzsk/ylws_76720/202410/t20241017_4788274.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "33.生育津贴支付服务指南.docx",
+          "start": 6,
+          "end": 7
+        }
+      ],
+      "note": "计发公式语料无直答，只标适用范围待遇条件段[6:7]"
+    },
+    {
+      "id": 40,
+      "cluster": "D",
+      "question": "北京医保怎么转出到外地医保",
+      "url": "https://www.bjhd.gov.cn/zsk/ldrsjc/shbz/202105/t20210520_4466611.shtml",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "18.跨省及其他流动就业人员基本医疗保险关系转移接续服务指南.docx",
+          "start": 20,
+          "end": 35
+        }
+      ],
+      "note": "只标doc18跨省（北京→外地属跨省）；doc17自治区内旧#16已考，避开重叠"
+    },
+    {
+      "id": 41,
+      "cluster": "A",
+      "question": "广西医保经办服务指南（单位注销登记）",
+      "url": "https://m12333.cn/qa/mdiui.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "13.单位注销登记服务指南.docx",
+          "start": 25,
+          "end": 32
+        },
+        {
+          "source": "13.单位注销登记服务指南.docx",
+          "start": 98,
+          "end": 100
+        }
+      ],
+      "note": "FAQ[98]问句与提问近逐字，考FAQ词面抢位；与#53同doc13不同区间"
+    },
+    {
+      "id": 42,
+      "cluster": "A",
+      "question": "上海医保：医疗救助对象参保，是否需要先缴费再申请补助？",
+      "url": "https://m12333.cn/qa/pwmsc.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "35.符合资助条件的救助对象参加城乡居民基本医疗保险个人缴费补贴服务指南.docx",
+          "start": 29,
+          "end": 32
+        },
+        {
+          "source": "35.符合资助条件的救助对象参加城乡居民基本医疗保险个人缴费补贴服务指南.docx",
+          "start": 89,
+          "end": 91
+        }
+      ],
+      "note": "与#38同doc35不同区间：#38考群体类别＋办理，本题考免申即办＋FAQ缴费扣减"
+    },
+    {
+      "id": 43,
+      "cluster": "J",
+      "question": "青岛市定点零售药店协议管理经办规程问答（实施时间及适用范围篇）",
+      "url": "https://m12333.cn/qa/mawsk.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "37.零售药店申请定点协议管理服务指南.docx",
+          "start": 17,
+          "end": 38
+        },
+        {
+          "source": "37.零售药店申请定点协议管理服务指南.docx",
+          "start": 121,
+          "end": 140
+        }
+      ],
+      "note": "实施时间语料无直答，只标条件＋材料＋FAQ可答部分"
+    },
+    {
+      "id": 44,
+      "cluster": "B",
+      "question": "职工从用人单位离职后，如何办理医保停保（含生育保险）手续？",
+      "url": "http://www.sm.gov.cn/wz/hdjlzsk/ybj/cjwt/202211/t20221122_1848913.htm",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "4.基本医疗保险人员减员申报服务指南.docx",
+          "start": 23,
+          "end": 30
+        },
+        {
+          "source": "4.基本医疗保险人员减员申报服务指南.docx",
+          "start": 110,
+          "end": 111
+        }
+      ],
+      "note": "只标doc4减员（FAQ[110]「联系原单位办理减员」直答）；doc7居民暂停旧#9已考，避开重叠"
+    },
+    {
+      "id": 45,
+      "cluster": "G",
+      "question": "广西自治区生育津贴政策问答：生育津贴是什么？怎么计算发多少？",
+      "url": "https://m12333.cn/qa/pfuku.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "33.生育津贴支付服务指南.docx",
+          "start": 18,
+          "end": 35
+        }
+      ],
+      "note": "计算部分语料无直答，只标条件＋材料＋方式段；与旧#29同文档区间部分重叠，本题考FAQ词面抢位（旧题未考）"
+    },
+    {
+      "id": 46,
+      "cluster": "G",
+      "question": "参保人员去哪里申请手工报销全额垫付的医疗费用？需要提交什么材料？",
+      "url": "https://www.bjhd.gov.cn/zsk/whwsty/ylws/202507/t20250702_4776782.shtml",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "30.住院费用报销服务指南.docx",
+          "start": 24,
+          "end": 33
+        },
+        {
+          "source": "34.医疗救助对象手工（零星）报销服务指南.docx",
+          "start": 25,
+          "end": 33
+        },
+        {
+          "source": "29.门诊费用报销服务指南.docx",
+          "start": 24,
+          "end": 30
+        }
+      ],
+      "note": "三份手工报销指南材料段都标，命中任一算对；doc29材料段[24:30]逐块核实"
+    },
+    {
+      "id": 47,
+      "cluster": "G",
+      "question": "成都市生育保险待遇常见问答（五）",
+      "url": "https://m12333.cn/qa/pauky.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "31.生育医疗费支付服务指南.docx",
+          "start": 27,
+          "end": 34
+        },
+        {
+          "source": "32.产前检查门诊费用报销服务指南.docx",
+          "start": 23,
+          "end": 30
+        },
+        {
+          "source": "33.生育津贴支付服务指南.docx",
+          "start": 25,
+          "end": 35
+        }
+      ],
+      "note": "三份生育待遇指南材料段都标，命中任一算对；与#51共享doc32[23:30]"
+    },
+    {
+      "id": 48,
+      "cluster": "E",
+      "question": "宣城医保：参保人员异地安置退休人员备案办理渠道有哪些呀？",
+      "url": "https://m12333.cn/qa/mfwpc.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "跨省安置退休人员备案服务指南.docx",
+          "start": 16,
+          "end": 30
+        }
+      ],
+      "note": "两张材料表[22][24]近重复，区间[16:30]含条件＋两表＋方式"
+    },
+    {
+      "id": 49,
+      "cluster": "F",
+      "question": "秦皇岛高血压、糖尿病门诊慢性病认定标准统一，医保用药范围明确",
+      "url": "https://m12333.cn/qa/pziad.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "26.门诊特殊慢性病待遇资格认定服务指南.docx",
+          "start": 105,
+          "end": 120
+        }
+      ],
+      "note": "病种目录内高血压[105:117]＋糖尿病[117:120]逐块核实合并[105:120]；窄于旧#26宽区间[97:351]，考特定病种定位"
+    },
+    {
+      "id": 50,
+      "cluster": "G",
+      "question": "关于办理住院医保报销所需要的材料有哪些？",
+      "url": "https://www.jingjiang.gov.cn/zmhd/wdzsk/art/2024/art_db79bed9ee43437d82c2b80aecb3f7f5.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "30.住院费用报销服务指南.docx",
+          "start": 24,
+          "end": 30
+        }
+      ],
+      "note": "与#46共享doc30材料段：本题单文档隔离、#46多文档命中任一"
+    },
+    {
+      "id": 51,
+      "cluster": "G",
+      "question": "产前检查费如何报销？",
+      "url": "https://www.tl.gov.cn/tlsrmzf/dwzsk/pc/content/content_2056548493347840000.html",
+      "source_type": "知识库",
+      "verified": true,
+      "answers": [
+        {
+          "source": "32.产前检查门诊费用报销服务指南.docx",
+          "start": 23,
+          "end": 30
+        }
+      ],
+      "note": "与#47共享doc32[23:30]：本题单文档隔离、#47多文档命中任一"
+    },
+    {
+      "id": 52,
+      "cluster": "A",
+      "question": "热门业务问题问答——参保登记（增员）",
+      "url": "https://rsj.beijing.gov.cn/yltc/202310/t20231028_3289377.html",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "3.单位职工医疗保险增员申报服务指南.docx",
+          "start": 18,
+          "end": 33
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "cluster": "A",
+      "question": "用人单位如何办理医疗保险注销登记？",
+      "url": "http://ybj.hubei.gov.cn/bmdt/ztzl/zt2022/hbsbjqyzgybzl/zgybkpzs/202201/t20220119_3971755.shtml",
+      "source_type": "知识库",
+      "verified": false,
+      "answers": [
+        {
+          "source": "13.单位注销登记服务指南.docx",
+          "start": 17,
+          "end": 32
+        }
+      ],
+      "note": "与#41同doc13：#41考FAQ抢位[25:32]+[98:100]，本题考条件＋材料＋方式[17:32]"
+    },
+    {
+      "id": 54,
+      "cluster": "E",
+      "question": "合肥医保：异地就医政策问答",
+      "url": "https://m12333.cn/qa/myyyk.html",
+      "source_type": "媒体",
+      "verified": false,
+      "answers": [
+        {
+          "source": "23.跨省转诊人员备案服务指南.docx",
+          "start": 16,
+          "end": 26
+        },
+        {
+          "source": "24.跨省临时就医备案服务指南.docx",
+          "start": 16,
+          "end": 25
+        }
+      ],
+      "note": "问句宽泛，标转诊23＋临时24两份，命中任一算对；与#37共享doc24[16:25]"
+    }
+  ]
+}
