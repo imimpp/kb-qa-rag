@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>广西医保经办问答</title>
+<!--
+文件作用：问答页的静态展示层，把命令行已跑通的「检索→拼提示词→生成→带出处回答」结果给人看。
+链路位置：浏览器提问 → 服务端接口 → embed_index.search → generation.build_messages
+          → LLMClient.chat → generation.format_answer → 本页渲染。
+输入：POST /api/ask 的响应 {answer, citations}；answer 是模型回答正文，
+      citations 每项为 {n, source, "block[start:end]": [起, 止]}。
+输出：屏幕上的回答与引用出处列表；本页不产生数据、不改动语料与索引。
+边界：接口路径与请求方法是本页先假定的约定，接口尚未实现；
+      maxlength 与按钮禁用只防手滑连点，长度校验与限流必须由服务端负责。
+删掉本页后果：命令行链路照常工作，但外部的人没有可点开的入口。
+最小示例：把 {answer:"示例回答 [1]", citations:[{n:"[1]", source:"示例.docx",
+          "block[start:end]":[3,7]}]} 交给渲染逻辑，页面显示回答与一行出处。
+-->
+<style>
+  /* 浅色单栏布局：样式写在本文件内，不引外部框架与字体，公网可离线渲染 */
+  body { margin:0; padding:32px 16px; background:#f7f8fa; color:#1f2937;
+         font:14px/1.7 system-ui,"Microsoft YaHei",sans-serif; }
+  main { max-width:720px; margin:0 auto; }
+  h1 { font-size:20px; font-weight:500; margin:0 0 4px; }
+  .sub { color:#6b7280; font-size:12px; margin:0 0 24px; }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+          padding:20px; margin-bottom:16px; }
+  .row { display:flex; gap:8px; }
+  input { flex:1; min-width:0; padding:10px 12px; border:1px solid #d1d5db;
+          border-radius:8px; font:inherit; }
+  button { padding:10px 20px; border:0; border-radius:8px; background:#185fa5;
+           color:#fff; font:inherit; cursor:pointer; }
+  button:disabled { background:#9ca3af; cursor:not-allowed; }
+  .status { font-size:13px; color:#6b7280; margin-top:10px; min-height:20px; }
+  .answer { white-space:pre-wrap; }
+  .citations { margin-top:16px; padding-top:12px; border-top:1px solid #e5e7eb; font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>广西医保经办问答</h1>
+  <p class="sub">基于 43 份广西医疗保障经办政务服务事项服务指南；回答只依据检索到的片段，并附出处。</p>
+
+  <!-- 提问区：输入、按钮与状态行；状态行常驻占位，提示出现时页面不跳动 -->
+  <section class="card">
+    <div class="row">
+      <input id="q" maxlength="120" placeholder="例如：企业参保登记需要什么材料？" autocomplete="off">
+      <button id="ask">提问</button>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <!-- 结果区：hidden 让它在首次提问前不占位，提问成功后才显示 -->
+  <section class="card" id="result" hidden>
+    <div class="answer" id="answer"></div>
+    <div class="citations">
+      <div>引用出处</div>
+      <ul id="citations"></ul>
+    </div>
+  </section>
+</main>
+
+<script>
+// document.getElementById 按 id 取页面元素存成常量，后面不必反复查 DOM
+const q = document.getElementById('q'), btn = document.getElementById('ask');
+const statusEl = document.getElementById('status'), result = document.getElementById('result');
+const answerEl = document.getElementById('answer'), citationsEl = document.getElementById('citations');
+
+// async 表示函数里会出现 await；await 等网络请求返回，但不卡住浏览器界面
+async function ask() {
+  const question = q.value.trim();
+  if (!question) { statusEl.textContent = '先写一句话再提问。'; return; }
+  btn.disabled = true;
+  result.hidden = true;
+  statusEl.textContent = '检索与生成中…';
+  try {
+    // fetch 发 POST；请求体是 JSON 字符串，请求头声明类型，服务端按此解析
+    const res = await fetch('/api/ask', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ question })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '请求失败');
+    // textContent 只当纯文本写入：模型回答里的尖括号不会被当 HTML 执行
+    answerEl.textContent = data.answer;
+    citationsEl.replaceChildren();
+    if (data.citations.length === 0) {
+      // 拒答时出处为空是生成侧既定口径，这里只解释，不编造出处
+      const li = document.createElement('li');
+      li.textContent = '本次未引用任何片段（拒答）';
+      citationsEl.append(li);
+    } else {
+      for (const c of data.citations) {
+        const li = document.createElement('li');
+        // 字段名照抄生成侧 format_answer 的返回形状，不改核心代码
+        const span = c['block[start:end]'];
+        li.textContent = c.n + ' ' + c.source + ' · 结构块 ' + span[0] + '–' + span[1];
+        citationsEl.append(li);
+      }
+    }
+    result.hidden = false; statusEl.textContent = '';
+  } catch (err) {
+    // 网络断开、接口报错、响应不是 JSON 都会落到这里，页面不会白屏
+    statusEl.textContent = '出错了：' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+btn.addEventListener('click', ask);
+q.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+</script>
+</body>
+</html>

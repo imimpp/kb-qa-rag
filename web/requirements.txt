@@ -1,0 +1,9 @@
+openai
+python-dotenv
+tenacity
+python-docx
+numpy
+jieba
+rank_bm25
+fastapi
+uvicorn

@@ -231,3 +231,9 @@ experiments/scan_results_010a.json
 
 # 项目决策记录（本地参考，含协作分工口径，不进版本库）
 DECISIONS.md
+
+# 发布包内 4 个 .py 副本（构建脚本拷入，真源在仓库根，只留一份）
+web/embed_index.py
+web/generation.py
+web/llm_client.py
+web/chunking.py

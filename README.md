@@ -61,7 +61,7 @@
 
 ```bash
 # 1. 安装依赖（Python 3.11+）
-pip install openai python-dotenv tenacity python-docx numpy jieba rank_bm25
+pip install openai python-dotenv tenacity python-docx numpy jieba rank_bm25 fastapi uvicorn
 
 # 2. 配置密钥
 cp .env.example .env      # 填入 OPENAI_API_KEY / OPENAI_API_BASE_URL
@@ -104,6 +104,15 @@ python experiments/exp_003_retry.py
 ├── embed_index.py             # 检索链路（建索引：embed+归一化落盘；查询：两路召回→RRF 圈池→rerank 精排→MMR 挑 5）
 ├── generation.py              # 生成侧（把检索 5 块拼进提示词、按标引取实际引用块、拒答时出处为空）
 ├── run_qa.py                  # 命令行问答入口（问题写在文件里，串检索→生成→出处）
+├── web/                       # 公网问答发布包（整目录上传；演示 key 随包，不进版本库）
+│   ├── index.html             # 静态页（fetch /api/ask；本轮不改）
+│   ├── app.py                 # FastAPI 入口（切 cwd / 显式加载 .env / 静态页 + /api/ask + 限流）
+│   ├── requirements.txt       # 发布包依赖（七项 + fastapi + uvicorn）
+│   ├── .env                   # 演示专用 key，本人填，已被 .gitignore 排除（内容不进仓库）
+│   ├── embed_index.py / generation.py / llm_client.py / chunking.py   # 构建脚本拷入的副本，真源在仓库根
+│   └── data/index/            # vectors.npy + meta.json，构建脚本拷入
+├── build_web.py               # 可复跑构建脚本（拷 4 个 .py 副本 + 索引进 web/，不进发布包）
+├── DEPLOY.md                  # 发布参数清单（发布当轮只读核对，写文档不触发发布）
 ├── test_parse_docs.py         # 解析层单元测试
 ├── test_llm_client.py         # 客户端成本/逻辑单测
 ├── data/                      # 整目录 .gitignore，不随仓库分发（语料与产物仅本地保留）
@@ -166,6 +175,8 @@ python experiments/exp_003_retry.py
 - **检索「命中」不等于生成「答出」，两层口径分开**：40 题评测的命中只要求标注块进 20 块候选池；生成侧只看收窄后送进提示词的 5 块。实测第 46 题（手工报销全额垫付）标注块在池内却未进前 5，送进提示词的 5 块中 4 块是填写示范 / 申报表样本，模型选择拒答而非编造——这是谨慎行为不是错误，记为已知限制。不靠放宽拒答约束或调大 k 硬凑答案；要评估端到端能否答出，须另立生成侧评测，与检索评测分开记。
 - **占位符真值是假设不是标注**：实验 008 的"每份 4 条"来自模板结构假设、未经人工逐份标注，漏检不会表现为 FAIL；且仅测大写 `X`，全角 `Ｘ`、小写 `xx`、其它占位字符未审计。
 - 复现 007/008 及批量解析需本地具备 `data/raw_doc/` 语料，该目录 `.gitignore`，不随仓库分发。
+- **公网问答限流是保守经验值，不是实测阈值**：按来源 IP 每分钟 3 次、单问题 120 字、全局并发上限 2 三项均为演示场景保守经验值、**无真人频率实测分布**。反向代理下若只能拿到同一出口 IP，会互相挤占甚至误伤其他验收者；计数在进程内存、重启清零且多进程不共享；前端 `maxlength=120` 只防手滑，服务端校验才是边界；并发上限只防瞬时雪崩、不防慢速滥用，本轮不加超时预算，慢速占用没有收敛手段。
+- **慢请求可能被反向代理掐断（阈值未确认）**：`llm_client.py` 的 chat/embed/rerank 各挂 5 次尝试、`timeout=60`；按 tenacity 源码实算，429 快速失败退避约 61 s（约 1 分钟量级，项目自注未实测 429 场景），全部尝试耗满 60 s 最坏 361 s≈6.02 分钟。**以上数字出自 tenacity 源码实算，不是实测**；反代超时阈值通常 30–60 s 量级但未确认。前端 `fetch` 无 `AbortController`／超时，连接层被掐断不保证拿到成形 `{error}`；本轮不在 app 层加超时预算、不给前端加超时（掐响应不取消底层线程、token 照烧，是假收敛），429／全超时／反代掐断的慢路径实测押后。
 
 ## 路线图
 
@@ -188,4 +199,5 @@ python experiments/exp_003_retry.py
 - [x] 评测集扩大到 40 题（实验 014；最终选型仍未判，非阻塞）
 - [ ] 切块/检索方法的最终选型判定（非阻塞，可延后；40 题上的差距点在标注口径，不是方法优劣）
 - [ ] 评测指标扩展（MRR / faithfulness 等）与生成侧评测（生成侧已实现，此项待做）
-- [ ] FastAPI 封装 + 流式接口（为公网链接服务，非前置条件）
+- [x] FastAPI 封装（`web/app.py`：自托管静态页 + `/api/ask` + 限流，公网链接服务入口）
+- [ ] 流式 Web 接口（为公网链接服务，非前置条件；本轮不做）
