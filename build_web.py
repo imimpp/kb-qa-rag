@@ -1,16 +1,14 @@
 """
-构建发布包：把检索/生成链路需要的文件拷进 web/ 目录。
+构建发布包：把检索生成链路的文件拷入 web/ 发布目录。
 
-为什么单独写这个脚本：
-发布时只上传 web/ 这一个目录（43 份原始 docx、实验记录、DECISIONS 都不上传），
-但 web/ 里要放齐运行所需的 4 个 .py 副本和 2 个索引文件。
-每次改了真源之后重跑一次，就能把最新文件同步进发布包。
+发布只上传 web/：43 份原始 docx、实验记录、DECISIONS 不在其中；
+web/ 需备齐 4 个 .py 副本与 data/index/ 两个索引文件。真源更新后重跑本脚本同步。
 """
 from pathlib import Path
 import shutil
 import filecmp
 
-# 用脚本自身位置定位仓库根，这样从任何目录启动都找得到文件
+# 以脚本位置定位仓库根，不依赖启动时的工作目录
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 
@@ -24,9 +22,9 @@ INDEX_FILES = ["vectors.npy", "meta.json"]
 
 
 def copy_one(src: Path, dst: Path) -> str:
-    """拷一个文件并逐字节校验；返回动作说明，复跑时看得出有没有变化。"""
+    """拷一个文件并逐字节校验，返回动作说明。"""
     dst.parent.mkdir(parents=True, exist_ok=True)
-    # 已经一致就跳过，保证重复运行不产生多余写入（幂等）
+    # 幂等：内容一致就跳过，不重复写入
     if dst.exists() and filecmp.cmp(src, dst, shallow=False):
         return "已一致，跳过"
     shutil.copy2(src, dst)
